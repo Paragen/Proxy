@@ -110,14 +110,15 @@ public:
     void connect(Node &node) {
         //cout << "Connect to " + node.address + "\n";
         unique_ptr<Node> tmpPtr;
-
-        tmpPtr = make_unique<Node>(dataStorage, false);
         SocketWrap socketWrap;
+
         try {
+        tmpPtr = make_unique<Node>(dataStorage, false);
             socketWrap = server.connect(node.address, node.port, socketMode::toReadAndWrite, tmpPtr.get());
         } catch (...) {
             onErrorSlot(node.socket.toSocket());
         }
+
         tmpPtr->socket = socketWrap;
 
         for (auto listIter = connectedClients.begin(); listIter != connectedClients.end(); ++listIter) {
@@ -156,9 +157,14 @@ void Proxy::onReadSlot(Socket &socket) {
     //In this case, we don't know on which address we should forward the request
     if (ptr->peer == nullptr) {
         if (ptr->address == "") {
-            ptr->size += socket.read(ptr->buffer.get() + ptr->size, BUFFER_SIZE - ptr->size);
+            try {
+                ptr->size += socket.read(ptr->buffer.get() + ptr->size, BUFFER_SIZE - ptr->size);
+            } catch (...) {
+                onErrorSlot(socket);
+            }
 
-            if (socket.getState() == socketState::close) {
+
+            if (socket.getState() != socketState::open) {
                 onErrorSlot(socket);
             }
 

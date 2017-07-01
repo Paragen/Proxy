@@ -6,6 +6,8 @@ set(CMAKE_CXX_STANDARD 14)
 FIND_PACKAGE( Boost 1.40 COMPONENTS program_options REQUIRED )
 INCLUDE_DIRECTORIES( ${Boost_INCLUDE_DIR} )
 
+#set(CMAKE_CXX_FLAGS "-fsanitize=leak")
+
 set(SOURCE_FILES main.cpp proxy.h server.cpp server.h socket.cpp socket.h )
 add_executable(Proxy ${SOURCE_FILES})
 

@@ -60,7 +60,7 @@ class Proxy {
                                                     ds(&storage) {}
 
         ~Node() {
-            if (isClient) {
+         /*   if (isClient) {
                 cout << "Client drop";
                 if (address != "") {
                     cout << address;
@@ -68,7 +68,7 @@ class Proxy {
                 cout << "\n";
             } else {
                 cout << "Server drop\n";
-            }
+            }*/
             ds->release(buffer.release());
             if (!crutch) {
                 socket.close();
@@ -110,7 +110,7 @@ public:
     }
 
     void connect(Node &node) {
-        cout << "Connect to " + node.address + "\n";
+       // cout << "Connect to " + node.address + "\n";
         unique_ptr<Node> tmpPtr;
         SocketWrap socketWrap;
 
@@ -192,7 +192,7 @@ void Proxy::onReadSlot(Socket &socket) {
         }
 
     } else {
-        cout << "Read from " + ptr->address + " | " + ptr->peer->address + "\n";
+        //cout << "Read from " + ptr->address + " | " + ptr->peer->address + "\n";
         char *start;
         unsigned size, initial_size = ptr->size;
         if (ptr->shift + ptr->size >= BUFFER_SIZE) {
@@ -233,7 +233,7 @@ void Proxy::onWriteSlot(Socket &socket) {
     ptr = ptr->peer;
 
 
-    cout << "Write from " + ptr->address + " | " + ptr->peer->address + "\n";
+    //cout << "Write from " + ptr->address + " | " + ptr->peer->address + "\n";
     char *start = ptr->buffer.get() + ptr->shift;
     unsigned size, initial_size = ptr->size;
     if (ptr->shift + ptr->size >= BUFFER_SIZE) {

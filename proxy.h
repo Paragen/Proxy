@@ -60,7 +60,7 @@ class Proxy {
                                                     ds(&storage) {}
 
         ~Node() {
-         /*   if (isClient) {
+           if (isClient) {
                 cout << "Client drop";
                 if (address != "") {
                     cout << address;
@@ -68,7 +68,7 @@ class Proxy {
                 cout << "\n";
             } else {
                 cout << "Server drop\n";
-            }*/
+            }
             ds->release(buffer.release());
             if (!crutch) {
                 socket.close();
@@ -90,7 +90,7 @@ class Proxy {
     void onErrorSlot(Socket &socket);
 
 public:
-    static const unsigned BUFFER_SIZE = 10 * 1024 * 1024, STARTED_POOL = 10;
+    static const unsigned BUFFER_SIZE = 4 * 1024, STARTED_POOL = 10;
 
     Proxy() : dataStorage(STARTED_POOL, BUFFER_SIZE) {
         server.setSlot(boost::bind(&Proxy::onListenSlot, this, _1), socketMode::toListen);
@@ -110,7 +110,7 @@ public:
     }
 
     void connect(Node &node) {
-       // cout << "Connect to " + node.address + "\n";
+        cout << "Connect to " + node.address + " by " +  (node.address == "80" ? "HTTP" : "HTTPS") +  "\n";
         unique_ptr<Node> tmpPtr;
         SocketWrap socketWrap;
 
@@ -199,7 +199,7 @@ void Proxy::onReadSlot(Socket &socket) {
             start = ptr->buffer.get() + (ptr->shift + ptr->size - BUFFER_SIZE);
             size = BUFFER_SIZE - ptr->size;
         } else {
-            start = ptr->buffer.get() + ptr->shift;
+            start = ptr->buffer.get() + ptr->shift + ptr->size;
             size = BUFFER_SIZE - ptr->shift - ptr->size;
         }
 
@@ -207,6 +207,7 @@ void Proxy::onReadSlot(Socket &socket) {
             ptr->size += socket.read(start, size);
         } catch (...) {
             onErrorSlot(socket);
+            return;
         }
 
         if (socket.getState() != socketState::open) {
@@ -236,7 +237,7 @@ void Proxy::onWriteSlot(Socket &socket) {
     //cout << "Write from " + ptr->address + " | " + ptr->peer->address + "\n";
     char *start = ptr->buffer.get() + ptr->shift;
     unsigned size, initial_size = ptr->size;
-    if (ptr->shift + ptr->size >= BUFFER_SIZE) {
+    if (ptr->shift + ptr->size > BUFFER_SIZE) {
         size = BUFFER_SIZE - ptr->shift;
     } else {
         size = ptr->size;
@@ -247,6 +248,7 @@ void Proxy::onWriteSlot(Socket &socket) {
         tmp = socket.write(start, size);
     } catch (...) {
         onErrorSlot(socket);
+        return;
     }
 
     ptr->shift += tmp;

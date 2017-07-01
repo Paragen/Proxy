@@ -7,7 +7,7 @@ using namespace std;
 
 
 void Socket::setMode(socketMode mode) {
-    assert(state == socketState::open);
+    //assert(state == socketState::open);
     try {
         host->epollChange(this, mode);
     } catch (...) {

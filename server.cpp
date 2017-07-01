@@ -244,7 +244,9 @@ void Server::run(int timeOut) {
                                    [&currentPtr](const std::shared_ptr<Socket> &ptr) {
                                        return *currentPtr == ptr.get();
                                    });
-            servedSockets.erase(it);
+            if (it != servedSockets.end()) {
+                servedSockets.erase(it);
+            }
         }
         toRemoveList.clear();
     }

@@ -53,7 +53,7 @@ class Proxy {
         unsigned size = 0, shift = 0;
         string port, address;
         SocketWrap socket;
-        bool isClient;
+        bool isClient, untilEnd = false, crutch = false;
         DataStorage *ds;
 
         Node(DataStorage &storage, bool isClient) : buffer(storage.pull()), peer(nullptr), isClient(isClient),
@@ -70,7 +70,9 @@ class Proxy {
                 cout << "Server drop\n";
             }*/
             ds->release(buffer.release());
-            socket.close();
+            if (!crutch) {
+                socket.close();
+            }
         }
     };
 
@@ -101,7 +103,7 @@ public:
         server.listen(port, (void *) (&defaultPorts[protocol]));
     }
 
-    void run(const string& httpPort, const string& httpsPort) {
+    void run(const string &httpPort, const string &httpsPort) {
         listen(httpPort, Protocol::HTTP);
         listen(httpsPort, Protocol::HTTPS);
         server.run();
@@ -113,7 +115,7 @@ public:
         SocketWrap socketWrap;
 
         try {
-        tmpPtr = make_unique<Node>(dataStorage, false);
+            tmpPtr = make_unique<Node>(dataStorage, false);
             socketWrap = server.connect(node.address, node.port, socketMode::toReadAndWrite, tmpPtr.get());
         } catch (...) {
             onErrorSlot(node.socket.toSocket());
@@ -134,6 +136,7 @@ public:
         servedNodes[node.address].push_back(
                 pair<unique_ptr<Node>, unique_ptr<Node>>(unique_ptr<Node>(&node), move(tmpPtr)));
         node.socket.setMode(socketMode::toReadAndWrite);
+
         if (node.port != defaultPorts[Protocol::HTTP]) {
             string resp = "HTTP/1.1 200 Connection established\r\n\r\n";
             copy(resp.c_str(), resp.c_str() + resp.length(), serverPtr->buffer.get());
@@ -156,38 +159,36 @@ void Proxy::onReadSlot(Socket &socket) {
 
     //In this case, we don't know on which address we should forward the request
     if (ptr->peer == nullptr) {
-        if (ptr->address == "") {
-            try {
-                ptr->size += socket.read(ptr->buffer.get() + ptr->size, BUFFER_SIZE - ptr->size);
-            } catch (...) {
-                onErrorSlot(socket);
+
+        try {
+            ptr->size += socket.read(ptr->buffer.get() + ptr->size, BUFFER_SIZE - ptr->size);
+        } catch (...) {
+            onErrorSlot(socket);
+        }
+
+
+        if (socket.getState() != socketState::open) {
+            onErrorSlot(socket);
+        }
+
+        string tmpString(ptr->buffer.get(), ptr->size);
+
+        unsigned long start, end;
+        //Check if we got full destination address
+        if (tmpString.length() > 4 && tmpString.substr(tmpString.length() - 4) == "\r\n\r\n" &&
+            (start = tmpString.find("Host: ")) != string::npos &&
+            (end = tmpString.find("\r\n", start)) != string::npos) {
+            start += 6;
+            string destinationAddress = tmpString.substr(start, end - start);
+            if ((start = destinationAddress.find(":")) != string::npos) {
+                ptr->address = destinationAddress.substr(start + 1);
+                destinationAddress = destinationAddress.substr(0, start);
             }
+            ptr->address = destinationAddress;
 
-
-            if (socket.getState() != socketState::open) {
-                onErrorSlot(socket);
-            }
-
-            string tmpString(ptr->buffer.get(), ptr->size);
-
-            unsigned long start, end;
-            //Check if we got full destination address
-            if (tmpString.length() > 4 && tmpString.substr(tmpString.length() - 4) == "\r\n\r\n" &&
-                (start = tmpString.find("Host: ")) != string::npos &&
-                (end = tmpString.find("\r\n", start)) != string::npos) {
-                start += 6;
-                string destinationAddress = tmpString.substr(start, end - start);
-                if ((start = destinationAddress.find(":")) != string::npos) {
-                    ptr->address = destinationAddress.substr(start + 1);
-                    destinationAddress = destinationAddress.substr(0, start);
-                }
-                ptr->address = destinationAddress;
-
-                connect(*ptr);
-            }
-        } else {
             connect(*ptr);
         }
+
     } else {
         //cout << "Read from " + ptr->address + " | " + ptr->peer->address + "\n";
         char *start;
@@ -256,6 +257,10 @@ void Proxy::onWriteSlot(Socket &socket) {
         onErrorSlot(socket);
     } else {
         if (ptr->size == 0) {
+            if (ptr->peer->untilEnd) {
+                onErrorSlot(socket);
+                return;
+            }
             socketMode current_mode = (socket.getMode() == socketMode::toWrite) ? socketMode::none : socketMode::toRead;
             socket.setMode(current_mode);
         } else if (initial_size == BUFFER_SIZE && ptr->size != BUFFER_SIZE) {
@@ -301,23 +306,29 @@ void Proxy::onErrorSlot(Socket &socket) {
             auto iter = servedNodes.find(ptr->address);
             for (auto listIter = iter->second.begin(); listIter != iter->second.end(); ++listIter) {
                 if (listIter->first.get() == ptr) {
-                    iter->second.erase(listIter);
+                    if (ptr->untilEnd) {
+                        iter->second.erase(listIter);
+                    } else {
+                        ptr->crutch = true;
+                        ptr->socket.close();
+                        listIter->second->untilEnd = true;
+                        listIter->second->socket.setMode(socketMode::toWrite);
+                    }
                     break;
                 }
             }
         }
     } else {
-        // reconnect
         auto iter = servedNodes.find(ptr->peer->address);
         for (auto listIter = iter->second.begin(); listIter != iter->second.end(); ++listIter) {
             if (listIter->second.get() == ptr) {
-                auto tmp = listIter->first.release();
-                iter->second.erase(listIter);
-                if (tmp->port == defaultPorts[Protocol::HTTP]) {
-                    connectedClients.push_back(unique_ptr<Node>(tmp));
-                    tmp->peer = nullptr;
+                if (ptr->untilEnd) {
+                    iter->second.erase(listIter);
                 } else {
-                    delete tmp;
+                    ptr->crutch = true;
+                    ptr->socket.close();
+                    listIter->first->untilEnd = true;
+                    listIter->first->socket.setMode(socketMode::toWrite);
                 }
                 break;
             }

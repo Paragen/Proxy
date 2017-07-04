@@ -110,7 +110,7 @@ public:
     }
 
     void connect(Node &node) {
-        //cout << "Connect to " + node.address + " by " +  (node.address == "80" ? "HTTP" : "HTTPS") +  "\n";
+        //cout << "Connect to " + node.address + " by " +  (node.port == "80" ? "HTTP" : "HTTPS") +  "\n";
         unique_ptr<Node> tmpPtr;
         SocketWrap socketWrap;
 
@@ -135,6 +135,7 @@ public:
         Node *serverPtr = tmpPtr.get();
         servedNodes[node.address].push_back(
                 pair<unique_ptr<Node>, unique_ptr<Node>>(unique_ptr<Node>(&node), move(tmpPtr)));
+
         node.socket.setMode(socketMode::toReadAndWrite);
 
         if (node.port != defaultPorts[Protocol::HTTP]) {
@@ -142,10 +143,27 @@ public:
             copy(resp.c_str(), resp.c_str() + resp.length(), serverPtr->buffer.get());
             serverPtr->size = resp.length();
             node.size = 0;
+        } else {
+
         }
         serverPtr->peer = &node;
         node.peer = serverPtr;
 
+    }
+
+    void disconnectServer(Node& node) {
+        node.shift = 0;
+        node.size = 0;
+        auto iter = servedNodes.find(node.address);
+        for (auto listIter = iter->second.begin(); listIter != iter->second.end(); ++listIter) {
+            if (listIter->first.get() == &node) {
+                listIter->first.release();
+                node.peer = nullptr;
+                connectedClients.push_back(unique_ptr<Node>(&node));
+                iter->second.erase(listIter);
+                break;
+            }
+        }
     }
 
     ~Proxy() {
@@ -158,7 +176,12 @@ void Proxy::onReadSlot(Socket &socket) {
     Node *ptr = socket.getData<Node>();
 
     //In this case, we don't know on which address we should forward the request
-    if (ptr->peer == nullptr) {
+    if (ptr->peer == nullptr || (ptr->isClient && ptr->port == "80")) {
+
+
+        if (ptr->peer != nullptr && ptr->size == 0) {
+            disconnectServer(*ptr);
+        }
 
         try {
             ptr->size += socket.read(ptr->buffer.get() + ptr->size, BUFFER_SIZE - ptr->size);
@@ -182,12 +205,23 @@ void Proxy::onReadSlot(Socket &socket) {
             (end = tmpString.find("\r\n", start)) != string::npos) {
             start += 6;
             string destinationAddress = tmpString.substr(start, end - start);
-            if ((start = destinationAddress.find(":")) != string::npos) {
-                ptr->address = destinationAddress.substr(start + 1);
-                destinationAddress = destinationAddress.substr(0, start);
-            }
-            ptr->address = destinationAddress;
+            if ((end = destinationAddress.find(":")) != string::npos) {
+                ptr->port = destinationAddress.substr(end + 1);
+                destinationAddress = destinationAddress.substr(0, end);
 
+            }
+
+            unsigned long num;
+            if ((num = tmpString.find(destinationAddress)) != start) {
+                string aloha;
+                start = tmpString.find(' ');
+                aloha = tmpString.substr(0,start + 1);
+                aloha += tmpString.substr(num + destinationAddress.length());
+                copy(aloha.c_str(), aloha.c_str() + aloha.length(), ptr->buffer.get());
+                ptr->size = aloha.length();
+            }
+            
+            ptr->address = destinationAddress;
             connect(*ptr);
         }
 
@@ -210,10 +244,13 @@ void Proxy::onReadSlot(Socket &socket) {
             return;
         }
 
+
+
+
         if (socket.getState() != socketState::open) {
             onErrorSlot(socket);
         } else {
-            if (initial_size == 0 && ptr->size != 0) {
+            if ( initial_size == 0 && ptr->size != 0) {
                 ptr = ptr->peer;
                 if (ptr->socket.getMode() == socketMode::none || ptr->socket.getMode() == socketMode::toRead) {
                     socketMode current_mode = (ptr->socket.getMode() == socketMode::none) ? socketMode::toWrite
@@ -232,7 +269,6 @@ void Proxy::onReadSlot(Socket &socket) {
 void Proxy::onWriteSlot(Socket &socket) {
     Node *ptr = socket.getData<Node>();
     ptr = ptr->peer;
-
 
     //cout << "Write from " + ptr->address + " | " + ptr->peer->address + "\n";
     char *start = ptr->buffer.get() + ptr->shift;
@@ -262,9 +298,17 @@ void Proxy::onWriteSlot(Socket &socket) {
     } else {
         if (ptr->size == 0) {
             if (ptr->peer->untilEnd) {
-                onErrorSlot(socket);
-                return;
+                if (ptr->peer->isClient && ptr->peer->port == "80") {
+                    disconnectServer(*(ptr->peer));
+                    socket.setMode(socketMode::toRead);
+                    ptr->peer->untilEnd = false;
+                    return;
+                } else {
+                    onErrorSlot(socket);
+                    return;
+                }
             }
+
             socketMode current_mode = (socket.getMode() == socketMode::toWrite) ? socketMode::none : socketMode::toRead;
             socket.setMode(current_mode);
         } else if (initial_size == BUFFER_SIZE && ptr->size != BUFFER_SIZE) {

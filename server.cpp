@@ -202,14 +202,14 @@ void Server::run(int timeOut) {
                 auto currentEvent = events[i];
 
                 Socket *dataPtr = (Socket *) currentEvent.data.ptr;
-                if (dataPtr->state != socketState::close && currentEvent.events & EPOLLIN) {
+                if (dataPtr->state != socketState::close && dataPtr->state != socketState::error  && currentEvent.events & EPOLLIN) {
                     if (dataPtr->mode == socketMode::toListen) {
                         signalsHolder[socketMode::toListen](*dataPtr);
                     } else {
                         signalsHolder[socketMode::toRead](*dataPtr);
                     }
                 }
-                if (dataPtr->state != socketState::close && currentEvent.events & EPOLLOUT) {
+                if (dataPtr->state != socketState::close && dataPtr->state != socketState::error && currentEvent.events & EPOLLOUT) {
                     if (dataPtr->state == socketState::connecting) {
                         dataPtr->state = socketState::open;
                         socketMode modeBuffer = dataPtr->mode;

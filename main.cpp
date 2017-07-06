@@ -1,10 +1,9 @@
 #include <signal.h>
 #include "proxy.h"
 
-Proxy proxy;
+   Proxy proxy;
 
 void my_handler(int sig,siginfo_t *siginfo,void *context) {
-    proxy.~Proxy();
     exit(0);
 }
 
@@ -24,6 +23,6 @@ int main(int argc, char** argv) {
     sa.sa_flags = SA_SIGINFO;
     sigaction(SIGINT,&sa,NULL);
 
-
+ 
     proxy.run(string(argv[1]),string(argv[2]));
 }

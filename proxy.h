@@ -134,7 +134,7 @@ public:
 
         Node *serverPtr = tmpPtr.get();
         servedNodes[node.address].push_back(
-                pair<unique_ptr<Node>, unique_ptr<Node>>(unique_ptr<Node>(&node), move(tmpPtr)));
+                pair<unique_ptr<Node>, unique_ptr<Node>>(unique_ptr<Node>(&node), unique_ptr<Node>(tmpPtr.release())));
 
         node.socket.setMode(socketMode::toReadAndWrite);
 
@@ -143,8 +143,6 @@ public:
             copy(resp.c_str(), resp.c_str() + resp.length(), serverPtr->buffer.get());
             serverPtr->size = resp.length();
             node.size = 0;
-        } else {
-
         }
         serverPtr->peer = &node;
         node.peer = serverPtr;
@@ -166,8 +164,7 @@ public:
         }
     }
 
-    ~Proxy() {
-    }
+    ~Proxy() {}
 
 };
 
@@ -220,7 +217,7 @@ void Proxy::onReadSlot(Socket &socket) {
                 copy(aloha.c_str(), aloha.c_str() + aloha.length(), ptr->buffer.get());
                 ptr->size = aloha.length();
             }
-            
+
             ptr->address = destinationAddress;
             connect(*ptr);
         }
